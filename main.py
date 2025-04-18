@@ -4,7 +4,7 @@ from google import genai
 import asyncio
 from concurrent.futures import TimeoutError
 from functools import partial
-from llm import call_llm
+from llm import call_llm, LLMConnection, call_llm_with_connection
 from memory import Memory
 from perception import perception
 from action import action
@@ -13,10 +13,15 @@ from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 
 # Load environment variables from .env file
+load_dotenv()
 
 async def main():
-    memory = Memory()
-    #reset_state()  # Reset at the start of main
+    # Initialize the LLM connection at the start
+    print("Initializing LLM connection...")
+    llm_connection = LLMConnection.get_instance()
+    
+    # Initialize memory with the connection
+    memory = Memory(connection=llm_connection)
     print("Starting main execution...")
     user_input = input("How can I help you today? ")
     try:
@@ -45,7 +50,6 @@ async def main():
                 print(f"Number of tools: {len(tools)}")
                 
                 try:
-                    
                     tools_description = []
                     for i, tool in enumerate(tools):
                         try:
@@ -77,25 +81,26 @@ async def main():
                     print(f"Error creating tools description: {e}")
                     tools_description = "Error loading tools"
 
-# Main loop starts here 
+                # Main loop starts here 
                 user_input = input("How can I help you today? ")
             
-                perception_result = await perception(user_input)
+                # Pass the connection to all functions that need it
+                perception_result = await perception(user_input, connection=llm_connection)
             
                 print("\nPerception Result: ", perception_result)
                 
-                memory_result = await memory.recall(perception_result)
+                memory_result = await memory.recall(perception_result, connection=llm_connection)
                 print("\nMemory Result: ", memory_result)
                 
                 if "No information found" in memory_result:
                     print("No information found in memory, calling LLM for decision")
-                    decision_result = await decision(perception_result)
+                    decision_result = await decision(perception_result, connection=llm_connection)
                 else:
                     print("Information found in memory, calling LLM for action")
-                    decision_result = await call_llm(memory_result)
+                    decision_result = await call_llm(memory_result, connection=llm_connection)
                 print("\nDecision: ", decision_result)
             
-                action_result = await action(decision_result)
+                action_result = await action(decision_result, connection=llm_connection)
                 print("\nAction Result: ", action_result)
                 
                 await memory.add(action_result)
@@ -105,8 +110,7 @@ async def main():
             import traceback
             traceback.print_exc()
     finally:
-            #reset_state()  # Reset at the end of main
-            print("Resetting state")
+            print("Execution complete")
 
 
 if __name__ == "__main__":
