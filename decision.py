@@ -1,4 +1,5 @@
-from llm import call_llm, LLMConnection, get_connection, extract_json
+from llm import call_llm, LLMConnection, get_connection
+from utils import extract_json
 import json
 
 async def decision(facts, tools_description, memory=None, connection=None):

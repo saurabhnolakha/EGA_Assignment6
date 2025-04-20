@@ -4,7 +4,7 @@ from google import genai
 import asyncio
 from concurrent.futures import TimeoutError
 from functools import partial
-from llm import call_llm, LLMConnection, call_llm_with_connection, extract_json
+from llm import LLMConnection
 from memory import Memory
 from perception import perception
 from action import action
@@ -12,7 +12,7 @@ from decision import decision
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 import logging
-from utils import to_json
+from utils import to_json, combine_json, extract_json
 
 
 # Configure logging to only show warnings and errors

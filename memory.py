@@ -1,7 +1,8 @@
 import json
 import os
 from typing import List, Dict, Any
-from llm import call_llm, LLMConnection, get_connection, extract_json
+from llm import call_llm, LLMConnection, get_connection
+from utils import combine_json, extract_json
 
 
 class Memory:
