@@ -6,5 +6,13 @@
   {
     "user_input": "multiply 1 and 2",
     "result": 2
+  },
+  {
+    "user_input": "multiply 3 and 4",
+    "result": 12
+  },
+  {
+    "user_input": "multiply 12345678 and 87654321",
+    "result": 1082152022374638
   }
 ]

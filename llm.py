@@ -229,9 +229,9 @@ def extract_structured_json(llm_output: Union[str, Dict, Any], model_class: Type
         if "function_call_params" in json_data and isinstance(json_data["function_call_params"], dict):
             # Map common parameter names to standardized names
             param_mapping = {
-                "param1": "a", "parameter1": "a", "p1": "a", "x": "a", "first": "a", "1": "a", 
-                "param2": "b", "parameter2": "b", "p2": "b", "y": "b", "second": "b", "2": "b",
-                "param3": "c", "parameter3": "c", "p3": "c", "z": "c", "third": "c", "3": "c",
+                "param1": "a", "parameter1": "a", "p1": "a", "x": "a", "first": "a", "1": "a", "integer1": "a", "num1": "a", "number1": "a",
+                "param2": "b", "parameter2": "b", "p2": "b", "y": "b", "second": "b", "2": "b", "integer2": "b", "num2": "b", "number2": "b",
+                "param3": "c", "parameter3": "c", "p3": "c", "z": "c", "third": "c", "3": "c", "integer3": "c", "num3": "c", "number3": "c",
                 # Add more mappings as needed
             }
             
