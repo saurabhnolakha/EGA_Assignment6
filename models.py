@@ -42,7 +42,13 @@ class PerceptionOutput(BaseModel):
     task: str
     function_call: Optional[str] = None
     function_call_params: Optional[dict] = None
-    
+
+class DecisionOutput(BaseModel):
+    task: str
+    function_call: Optional[str] = None
+    function_call_params: Optional[dict] = None
+    output: Optional[str] = None
+
     # Optional: add model configuration to allow extra fields
     class Config:
         extra = "allow"

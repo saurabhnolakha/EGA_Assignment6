@@ -26,10 +26,12 @@ async def decision(facts, tools_description, memory=None, connection=None):
             "output": null
         }}
         
-        The "task" should be the function to call.
-        The "function_call" should be the function call to be performed.
-        The "function_call_params" should be the parameters for the function call.
-        The "output" should always be null when no memory match is found.
+        "task" : function to be called from the available tools.
+        "function_call" : function call to be performed.
+        "function_call_params" : parameters for the function call.
+        "output" : output of the function call. It should always be null when no memory match is found.
+
+        Note: Do NOT modify or add explanations or descriptions. Return strictly ONLY the JSON object.
         """
     else:
         # First attempt to extract structured memory data
@@ -49,7 +51,7 @@ async def decision(facts, tools_description, memory=None, connection=None):
                     "output": extracted result value
                 }}
                 
-                Do NOT explain or add any text. Respond ONLY with the JSON object.
+                Note: Do NOT modify or add explanations or descriptions. Return strictly ONLY the JSON object.
                 """
             else:
                 # Fallback if memory has unexpected structure
@@ -71,7 +73,7 @@ async def decision(facts, tools_description, memory=None, connection=None):
                     "output": extracted result value
                 }}
                 
-                Do NOT add explanations or descriptions. Return ONLY the JSON object.
+                Note: Do NOT modify or add explanations or descriptions. Return strictly ONLY the JSON object.
                 """
         except Exception:
             # Fallback if JSON extraction fails
@@ -93,7 +95,7 @@ async def decision(facts, tools_description, memory=None, connection=None):
                 "output": extracted result value
             }}
             
-            Do NOT add explanations or descriptions. Return ONLY the JSON object.
+            Note: Do NOT modify or add explanations or descriptions. Return strictly ONLY the JSON object.
             """
     
     

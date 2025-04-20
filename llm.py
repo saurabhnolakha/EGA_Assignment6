@@ -212,30 +212,89 @@ def extract_structured_json(llm_output: Union[str, Dict, Any], model_class: Type
         # First extract the JSON
         json_data = extract_json(llm_output)
         
-        # Add special handling for PerceptionOutput
-        if model_class.__name__ == "PerceptionOutput":
-            # If we have task but missing function_call or function_call_params
-            if "task" in json_data:
-                if "function_call" not in json_data:
-                    json_data["function_call"] = json_data["task"].split("(")[0] if "(" in json_data["task"] else "unknown"
-                
-                # Handle input parameter conversion
-                if "function_call_params" not in json_data and "input" in json_data:
-                    params = {}
-                    if isinstance(json_data["input"], list):
-                        if len(json_data["input"]) >= 2:
-                            params["a"] = int(json_data["input"][0]) if isinstance(json_data["input"][0], str) and json_data["input"][0].isdigit() else json_data["input"][0]
-                            params["b"] = int(json_data["input"][1]) if isinstance(json_data["input"][1], str) and json_data["input"][1].isdigit() else json_data["input"][1]
-                        elif len(json_data["input"]) == 1:
-                            params["a"] = int(json_data["input"][0]) if isinstance(json_data["input"][0], str) and json_data["input"][0].isdigit() else json_data["input"][0]
-                    json_data["function_call_params"] = params
+        # Pre-process data for common model structures
+        if "function_call_params" in json_data and isinstance(json_data["function_call_params"], list):
+            # Convert list params to dictionary with keys a, b, etc.
+            params = {}
+            for i, value in enumerate(json_data["function_call_params"]):
+                key = chr(97 + i)  # 'a', 'b', 'c', etc.
+                # Convert string numbers to integers if possible
+                if isinstance(value, str) and value.isdigit():
+                    params[key] = int(value)
+                else:
+                    params[key] = value
+            json_data["function_call_params"] = params
+        
+        # Add standardized parameter name mapping
+        if "function_call_params" in json_data and isinstance(json_data["function_call_params"], dict):
+            # Map common parameter names to standardized names
+            param_mapping = {
+                "param1": "a", "parameter1": "a", "p1": "a", "x": "a", "first": "a", "1": "a", 
+                "param2": "b", "parameter2": "b", "p2": "b", "y": "b", "second": "b", "2": "b",
+                "param3": "c", "parameter3": "c", "p3": "c", "z": "c", "third": "c", "3": "c",
+                # Add more mappings as needed
+            }
+            
+            new_params = {}
+            for key, value in json_data["function_call_params"].items():
+                # If the key has a mapping, use the mapped key
+                mapped_key = param_mapping.get(key, key)
+                # Convert string numbers to integers if possible
+                if isinstance(value, str) and value.isdigit():
+                    new_params[mapped_key] = int(value)
+                else:
+                    new_params[mapped_key] = value
+            
+            json_data["function_call_params"] = new_params
+        
+        # Generic handling for task-based function calls in any model
+        if "task" in json_data:
+            if "function_call" not in json_data:
+                json_data["function_call"] = json_data["task"].split("(")[0] if "(" in json_data["task"] else json_data["task"]
+            
+            # If we have input parameters but no function_call_params
+            if "function_call_params" not in json_data and "input" in json_data:
+                params = {}
+                if isinstance(json_data["input"], list):
+                    for i, value in enumerate(json_data["input"]):
+                        key = chr(97 + i)  # 'a', 'b', 'c', etc.
+                        # Convert string numbers to integers if possible
+                        params[key] = int(value) if isinstance(value, str) and value.isdigit() else value
+                elif isinstance(json_data["input"], dict):
+                    params = json_data["input"]
+                else:
+                    params = {"a": json_data["input"]}
+                json_data["function_call_params"] = params
+        
+        # Extract parameters from function_call string if function_call_params is missing
+        if "function_call" in json_data and "function_call_params" not in json_data:
+            func_call = json_data["function_call"]
+            if "(" in func_call and ")" in func_call:
+                params_str = func_call.split("(", 1)[1].rsplit(")", 1)[0]
+                params_list = [p.strip() for p in params_str.split(",")]
+                params = {}
+                for i, value in enumerate(params_list):
+                    if value:  # Skip empty values
+                        key = chr(97 + i)  # 'a', 'b', 'c', etc.
+                        # Convert string numbers to integers if possible
+                        if value.isdigit():
+                            params[key] = int(value)
+                        else:
+                            # Remove quotes if present
+                            if (value.startswith('"') and value.endswith('"')) or \
+                               (value.startswith("'") and value.endswith("'")):
+                                value = value[1:-1]
+                            params[key] = value
+                json_data["function_call_params"] = params
         
         # Handle the case where we just have text but need a model
-        if len(json_data) == 1 and "text" in json_data and not any(f in model_class.__fields__ for f in json_data):
-            # Get the first field of the model
+        if len(json_data) == 1 and "text" in json_data:
+            # Try to determine if the text field matches any field in the model
             if model_class.__fields__:
                 first_field = next(iter(model_class.__fields__.keys()))
-                return model_class(**{first_field: json_data["text"]})
+                # If "text" is not a field in the model, map it to the first field
+                if "text" not in model_class.__fields__:
+                    return model_class(**{first_field: json_data["text"]})
         
         # Try to validate with Pydantic
         try:
@@ -246,6 +305,8 @@ def extract_structured_json(llm_output: Union[str, Dict, Any], model_class: Type
             print(f"JSON data: {json_data}")
             # Check which fields are missing and set them to default values if possible
             missing_fields = []
+            invalid_fields = []
+            
             for error in e.errors():
                 if error["type"] == "missing":
                     field_name = error["loc"][0]
@@ -261,10 +322,37 @@ def extract_structured_json(llm_output: Union[str, Dict, Any], model_class: Type
                             json_data[field_name] = {}
                         elif field_info.type_ == list:
                             json_data[field_name] = []
+                # Handle type errors
+                elif error["type"] in ["dict_type", "list_type", "string_type"]:
+                    field_path = error["loc"]
+                    field_name = field_path[0] if field_path else None
+                    if field_name:
+                        invalid_fields.append(field_name)
+                        # Fix common type issues
+                        if field_name == "function_call_params" and "function_call_params" in json_data:
+                            # If function_call_params is not a dict, convert it
+                            if not isinstance(json_data["function_call_params"], dict):
+                                value = json_data["function_call_params"]
+                                if isinstance(value, list):
+                                    # Convert list to dict
+                                    params = {}
+                                    for i, v in enumerate(value):
+                                        key = chr(97 + i)  # 'a', 'b', 'c', etc.
+                                        params[key] = int(v) if isinstance(v, str) and v.isdigit() else v
+                                    json_data["function_call_params"] = params
+                                elif isinstance(value, str):
+                                    # Convert string to dict
+                                    try:
+                                        json_data["function_call_params"] = json.loads(value)
+                                    except:
+                                        json_data["function_call_params"] = {"text": value}
+                                else:
+                                    # Any other type, convert to simple dict
+                                    json_data["function_call_params"] = {"value": value}
             
             # Try again with the fixed data
-            if missing_fields:
-                print(f"Attempting to fix missing fields: {missing_fields}")
+            if missing_fields or invalid_fields:
+                print(f"Attempting to fix fields: Missing: {missing_fields}, Invalid: {invalid_fields}")
                 return model_class.parse_obj(json_data)
             else:
                 raise

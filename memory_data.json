@@ -1,7 +1,10 @@
 [
-
   {
     "user_input": "add 15 and 25 ",
     "result": 40
+  },
+  {
+    "user_input": "multiply 1 and 2",
+    "result": 2
   }
 ]

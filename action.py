@@ -14,14 +14,14 @@ async def action(decision_text: str, connection=None):
     """
     try:
         # First, extract the task and parameters from the decision
-        from models import PerceptionOutput
+        from models import DecisionOutput
 
         # Print more diagnostic info
         print(f"Decision text type: {type(decision_text)}")
         if isinstance(decision_text, str):
             print(f"Decision text contains: {decision_text[:100]}...")
         
-        decision = extract_structured_json(decision_text, PerceptionOutput)
+        decision = extract_structured_json(decision_text, DecisionOutput)
         print(f"Extracted decision: {decision}")
         
         
