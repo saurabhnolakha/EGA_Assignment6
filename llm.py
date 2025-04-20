@@ -6,6 +6,11 @@ from pydantic import BaseModel, ValidationError
 from google import genai
 from dotenv import load_dotenv
 import os
+import logging
+
+# Configure logging to only show warnings and errors
+logging.basicConfig(level=logging.WARNING)
+logging.getLogger("google.generativeai").setLevel(logging.WARNING)
 
 load_dotenv()
 
@@ -53,7 +58,7 @@ class LLMConnection:
         except Exception as e:
             print(f"Error in LLM generation: {e}")
             raise
-    
+
     async def __aenter__(self):
         """Context manager entry"""
         return self
@@ -119,12 +124,12 @@ async def call_llm_with_connection(connection, prompt, timeout=30):
     return response.text
 
 
-def extract_json(llm_output: str) -> Dict[str, Any]:
+def extract_json(llm_output: Union[str, Any]) -> Dict[str, Any]:
     """
     Extract JSON from LLM output text using regex pattern matching.
     
     Args:
-        llm_output: The raw text output from the LLM
+        llm_output: The raw text output from the LLM or a dict
         
     Returns:
         A dictionary parsed from the JSON in the output
@@ -132,12 +137,28 @@ def extract_json(llm_output: str) -> Dict[str, Any]:
     Raises:
         ValueError: If no valid JSON is found in the text
     """
+    # If the input is already a dictionary, return it directly
+    if isinstance(llm_output, dict):
+        return llm_output
+        
     # Strip the text attribute if the input is a Gemini response object
     if hasattr(llm_output, 'text'):
         llm_output = llm_output.text
     
+    # Convert to string if it's not already
+    if not isinstance(llm_output, str):
+        llm_output = str(llm_output)
+    
+    # Check for markdown code blocks with JSON
+    code_block_matches = re.findall(r'```(?:json)?\s*\n(.*?)\n```', llm_output, re.DOTALL)
+    if code_block_matches:
+        for match in code_block_matches:
+            try:
+                return json.loads(match.strip())
+            except json.JSONDecodeError:
+                continue
+    
     # Try to find JSON pattern with curly braces
-    json_pattern = r'\{(?:[^{}]|(?R))*\}'
     json_matches = re.findall(r'\{.*\}', llm_output, re.DOTALL)
     
     if json_matches:
@@ -162,31 +183,92 @@ def extract_json(llm_output: str) -> Dict[str, Any]:
             return json.loads(json_substring)
     except json.JSONDecodeError:
         pass
-        
-    raise ValueError("No valid JSON found in the LLM output")
+    
+    # If all else fails, try to create a simple key-value JSON
+    # This might be useful for plain text responses
+    return {"text": llm_output}
 
 T = TypeVar('T', bound=BaseModel)
 
-def extract_structured_json(llm_output: Union[str, Any], model_class: Type[T]) -> T:
+def extract_structured_json(llm_output: Union[str, Dict, Any], model_class: Type[T]) -> T:
     """
     Extract JSON from LLM output and validate it against a Pydantic model.
     
     Args:
-        llm_output: The raw text output from the LLM or response object
+        llm_output: The raw text output from the LLM, dict, or response object
         model_class: The Pydantic model class to validate against
         
     Returns:
         An instance of the Pydantic model
         
     Raises:
-        ValueError: If no valid JSON is found or if validation fails
+        ValueError: If validation fails
     """
     try:
+        # If input is already a model instance of the correct type, return it
+        if isinstance(llm_output, model_class):
+            return llm_output
+        
         # First extract the JSON
         json_data = extract_json(llm_output)
         
-        # Then validate with Pydantic
-        return model_class.parse_obj(json_data)
+        # Add special handling for PerceptionOutput
+        if model_class.__name__ == "PerceptionOutput":
+            # If we have task but missing function_call or function_call_params
+            if "task" in json_data:
+                if "function_call" not in json_data:
+                    json_data["function_call"] = json_data["task"].split("(")[0] if "(" in json_data["task"] else "unknown"
+                
+                # Handle input parameter conversion
+                if "function_call_params" not in json_data and "input" in json_data:
+                    params = {}
+                    if isinstance(json_data["input"], list):
+                        if len(json_data["input"]) >= 2:
+                            params["a"] = int(json_data["input"][0]) if isinstance(json_data["input"][0], str) and json_data["input"][0].isdigit() else json_data["input"][0]
+                            params["b"] = int(json_data["input"][1]) if isinstance(json_data["input"][1], str) and json_data["input"][1].isdigit() else json_data["input"][1]
+                        elif len(json_data["input"]) == 1:
+                            params["a"] = int(json_data["input"][0]) if isinstance(json_data["input"][0], str) and json_data["input"][0].isdigit() else json_data["input"][0]
+                    json_data["function_call_params"] = params
+        
+        # Handle the case where we just have text but need a model
+        if len(json_data) == 1 and "text" in json_data and not any(f in model_class.__fields__ for f in json_data):
+            # Get the first field of the model
+            if model_class.__fields__:
+                first_field = next(iter(model_class.__fields__.keys()))
+                return model_class(**{first_field: json_data["text"]})
+        
+        # Try to validate with Pydantic
+        try:
+            return model_class.parse_obj(json_data)
+        except ValidationError as e:
+            # In case of validation error, print more details for debugging
+            print(f"Validation error: {e}")
+            print(f"JSON data: {json_data}")
+            # Check which fields are missing and set them to default values if possible
+            missing_fields = []
+            for error in e.errors():
+                if error["type"] == "missing":
+                    field_name = error["loc"][0]
+                    missing_fields.append(field_name)
+                    if field_name not in json_data:
+                        # Set a default value based on field type
+                        field_info = model_class.__fields__[field_name]
+                        if field_info.type_ == str:
+                            json_data[field_name] = ""
+                        elif field_info.type_ == int:
+                            json_data[field_name] = 0
+                        elif field_info.type_ == dict:
+                            json_data[field_name] = {}
+                        elif field_info.type_ == list:
+                            json_data[field_name] = []
+            
+            # Try again with the fixed data
+            if missing_fields:
+                print(f"Attempting to fix missing fields: {missing_fields}")
+                return model_class.parse_obj(json_data)
+            else:
+                raise
+            
     except ValidationError as e:
         raise ValueError(f"JSON validation failed: {str(e)}")
     except Exception as e:

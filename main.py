@@ -4,14 +4,22 @@ from google import genai
 import asyncio
 from concurrent.futures import TimeoutError
 from functools import partial
-from llm import call_llm, LLMConnection, call_llm_with_connection
+from llm import call_llm, LLMConnection, call_llm_with_connection, extract_json
 from memory import Memory
 from perception import perception
 from action import action
 from decision import decision
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
+import logging
+from utils import to_json
 
+
+# Configure logging to only show warnings and errors
+logging.basicConfig(level=logging.WARNING)
+
+# If needed, you can specifically configure the google.generativeai logger
+logging.getLogger("google.generativeai").setLevel(logging.WARNING)
 # Load environment variables from .env file
 load_dotenv()
 
@@ -23,7 +31,6 @@ async def main():
     # Initialize memory with the connection
     memory = Memory(connection=llm_connection)
     print("Starting main execution...")
-    user_input = input("How can I help you today? ")
     try:
         # Create a single MCP server connection
         print("Establishing connection to MCP server...")
@@ -94,17 +101,28 @@ async def main():
                 
                 if "No information found" in memory_result:
                     print("No information found in memory, calling LLM for decision")
-                    decision_result = await decision(perception_result, connection=llm_connection)
+                    # No memory found - pass perception_result as facts, memory=None (default)
+                    decision_result = await decision(perception_result, tools_description, connection=llm_connection)
                 else:
                     print("Information found in memory, calling LLM for action")
-                    decision_result = await call_llm(memory_result, connection=llm_connection)
+                    # Memory found - pass perception_result as facts, memory_result as memory
+                    decision_result = await decision(perception_result, tools_description, memory=memory_result, connection=llm_connection)
                 print("\nDecision: ", decision_result)
             
-                action_result = await action(decision_result, connection=llm_connection)
-                print("\nAction Result: ", action_result)
-                
-                await memory.add(action_result)
-
+                try:
+                    decision_obj = extract_json(decision_result)
+                    if decision_obj.get('output') not in (None, "null", "") :
+                    # action_result = await action(decision_result, connection=llm_connection)
+                        print("Decision Tree: Output found in memory....")
+                        print("\nAction Result: ", decision_obj.get('output'))
+                    # await memory.add(decision_result.output) -- Skip adding to memory as it is already in memory   
+                    else:
+                        print("Decision Tree: Output not found in memory, calling LLM for action")
+                        action_result = await action(decision_obj, connection=llm_connection)
+                        print("\nAction Result: ", action_result)
+                        await memory.add(to_json(user_input, action_result))
+                except ValueError:
+                    print("Error in extracting JSON from decision result")
     except Exception as e:
             print(f"Error in main execution: {e}")
             import traceback
