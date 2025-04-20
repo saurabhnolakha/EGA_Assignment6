@@ -148,7 +148,7 @@ Used to find relevant previous calculations in memory:
 Given the memory entries below, find any entries that are EXACTLY relevant to the query: "{query}"
 
 Memory entries:
-{memory_entries}
+{json.dumps(self.memory, indent=2)}
 
 REASONING INSTRUCTIONS:
 - Reason step-by-step through each memory entry to assess relevance
@@ -158,28 +158,85 @@ REASONING INSTRUCTIONS:
 - Assign a relevance score to each potential match
 - Verify your reasoning before concluding
 
+MATCHING CRITERIA:
+Specifically, look for:
+1. For mathematical operations (add, multiply, etc.), ALL numeric parameters MUST be an EXACT match
+2. The operation type MUST be the same (e.g., "add" matches "add", "multiply" matches "multiply")
+3. The order of parameters matters for non-commutative operations
+4. For semantic matching, only apply this to the operation type, NOT to the parameter values
+
 CRITICAL RULE: For calculator operations, if ANY parameter value is different, it is NOT a match.
-```
 
-### Decision-Making Prompt
-Used to determine the correct action based on the perception and memory:
+The query may be in JSON format with "task" and "function_call_params" fields. If so, focus on matching the task and parameters.
 
-```
-Facts: {facts}
-Memory: {memory}
-Available Tools: {tools_description}
+REASONING TYPES:
+- [QUERY ANALYSIS] - Breaking down the query components
+- [PARAMETER EXTRACTION] - Identifying the exact numeric values in the query
+- [MEMORY COMPARISON] - Comparing query elements to memory entries
+- [RELEVANCE SCORING] - Determining match confidence
+- [VERIFICATION] - Confirming exact matches for all parameters and the operation type
 
-Based on the information provided, identify the mathematical operation being requested and the specific parameters needed.
+CONVERSATION CONTEXT:
+- This system is for a calculator implementation
+- Exact parameter matching is REQUIRED for calculator operations
+- Previous results should be used to inform future queries ONLY when ALL parameters match exactly and the operation type is the same.
 
-Return your decision in the following JSON format:
-{
-    "task": "The specific task or operation (e.g., add, multiply)",
-    "function_call": "function_name(param1, param2, ...)",
-    "function_call_params": {
-        "a": value1,
-        "b": value2
-    }
-}
+SELF-VERIFICATION:
+- Double-check that function names match exactly
+- Verify that ALL parameter values are EXACTLY identical, not just similar
+- If ANY single parameter is different, reject the match
+- If the operation type is different, reject the match.
+
+EXAMPLES:
+1. Query: "Add 1 and 2?"
+   Memory: {{"user_input": "add 1 and 2", "result": 3}}
+   Result: {{"memory": {{"user_input": "add 1 and 2", "result": 3}}}}
+
+2. Query: "Add 1 and 3?"
+   Memory: {{"user_input": "add(1, 2)", "result": 3}}
+   Result: "No information found"  <-- DIFFERENT PARAMETERS, NOT A MATCH
+
+3. Query: "Multiply 3 and 4?"
+   Memory: {{"user_input": "multiply(1, 2)", "result": 2}}
+   Result: "No information found"  <-- DIFFERENT PARAMETERS, NOT A MATCH
+
+   Similarly for the following queries, these matching rules apply:
+   - "Addition of 1 and 2?" matches "add(1, 2)"
+   - "Multiply 1 and 2?" matches "multiply(1, 2)"  
+   - "1 plus 2?" matches "add(1, 2)"
+   - "1 * 2?" matches "multiply(1, 2)"
+
+   While for the following queries, and with memory entry as Memory: {{"user_input": "add(1, 2)", "result": 3}}, the matching should fail and return "No information found":
+   1) "Add 1 and 2 and 3?"
+   2) "Sum of 1, 2 and 3?"
+   3) "1 plus 2 plus 3?"
+   4) "1 + 2 + 3?"
+
+OUTPUT FORMAT:
+Return the result in strictly the json format as shown below:
+{{
+    "memory": {{
+        "user_input": "the matched input",
+        "result": the matched result value
+    }}
+}}
+
+or if multiple matches exist, return one only and only the closest match:
+{{
+    "memory": {{
+        "user_input": "first matched input",
+        "result": first matched result value
+    }}
+}}
+
+ERROR HANDLING:
+If answer is not found in the memory, return "No information found" in plain text not in JSON format
+
+Note: 
+1. You should not provide a list of sources/bibliography at the end of the response.
+2. Do not add any explanations or descriptions. Return strictly ONLY the JSON object.
+3. Do not add any other text or comments for any sections mentioned above. Return strictly ONLY the JSON object.
+
 ```
 
 ## Utility Functions
