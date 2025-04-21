@@ -22,5 +22,13 @@
   {
     "user_input": "multiply 876987609870 and 978698698709809",
     "result": 858306632564394647634214830
+  },
+  {
+    "user_input": "do this -> 1234567 * 1234535",
+    "result": 1524116171345
+  },
+  {
+    "user_input": "multiply 456 and 67587",
+    "result": 30819672
   }
 ]

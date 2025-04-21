@@ -268,3 +268,49 @@ New mathematical functions can be added by:
 3. The system will automatically discover and use the new function
 
 No modifications to `action.py` are needed thanks to the dynamic function execution system.
+
+## Logging System
+
+The application includes a comprehensive logging system with the following features:
+
+### Emoji-Enhanced Logging
+
+Logs are enhanced with emojis for better visual identification of log levels:
+- 🔍 DEBUG - Detailed diagnostic information (LLM prompts, full responses, parameters)
+- ℹ️ INFO - Confirmation of normal operations (function execution, module initialization)
+- ⚠️ WARNING - Potential issues that don't stop execution (parameter mismatches, fallbacks)
+- ⛔ ERROR - Errors that prevent specific operations (validation failures, function errors)
+- 🔥 CRITICAL - Critical failures of the entire system (unrecoverable exceptions)
+
+### Log Configuration
+
+Logging is configured in `main.py` and `utils.py`:
+- Log files are stored in the `logs` directory
+- Both console and file output are supported
+- Log levels can be controlled to adjust verbosity
+
+### Usage in Code
+
+Each module uses its own logger for precise log source identification:
+
+```python
+from utils import get_logger
+
+# Get a logger for this module
+logger = get_logger(__name__)
+
+def my_function():
+    logger.info("Function started")
+    # ... function code ...
+    logger.debug(f"Processing parameters: {params}")
+    # ... more code ...
+    logger.info("Function completed successfully")
+```
+
+### Key Benefits
+
+- **Traceability**: All operations are logged with timestamps and source information
+- **Debuggability**: Detailed diagnostic information for troubleshooting
+- **Visibility**: Better insights into application flow and operation
+- **Error Reporting**: Comprehensive error logging with context
+- **Configurability**: Log level and output can be adjusted based on needs

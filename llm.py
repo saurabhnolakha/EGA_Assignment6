@@ -6,11 +6,10 @@ from pydantic import BaseModel, ValidationError
 from google import genai
 from dotenv import load_dotenv
 import os
-import logging
+from utils import get_logger
 
-# Configure logging to only show warnings and errors
-logging.basicConfig(level=logging.WARNING)
-logging.getLogger("google.generativeai").setLevel(logging.WARNING)
+# Get a logger for this module
+logger = get_logger(__name__)
 
 load_dotenv()
 
@@ -33,11 +32,11 @@ class LLMConnection:
             api_key = os.getenv("GEMINI_API_KEY")
         self.client = genai.Client(api_key=api_key)
         self.model = model
-        print(f"Initialized LLM connection with model: {model}")
+        logger.info(f"Initialized LLM connection with model: {model}")
     
     async def generate(self, prompt, timeout=30):
         """Generate content with timeout"""
-        print(f"Generating with model: {self.model}, timeout: {timeout}s")
+        logger.info(f"Generating with model: {self.model}, timeout: {timeout}s")
         try:
             loop = asyncio.get_event_loop()
             response = await asyncio.wait_for(
@@ -50,13 +49,13 @@ class LLMConnection:
                 ),
                 timeout=timeout
             )
-            print("LLM generation completed")
+            logger.info("LLM generation completed")
             return response
         except asyncio.TimeoutError:
-            print(f"LLM generation timed out after {timeout} seconds!")
+            logger.error(f"LLM generation timed out after {timeout} seconds!")
             raise
         except Exception as e:
-            print(f"Error in LLM generation: {e}")
+            logger.error(f"Error in LLM generation: {e}")
             raise
 
     async def __aenter__(self):
@@ -77,10 +76,10 @@ def get_connection():
 # Maintain backward compatibility with existing code
 async def generate_with_timeout(client, prompt, timeout=100):
     """Legacy function for backward compatibility"""
-    print("WARNING: Using deprecated generate_with_timeout function")
+    logger.warning("Using deprecated generate_with_timeout function")
     connection = LLMConnection.get_instance()
     response = await connection.generate(prompt, timeout)
-    print("LLM Response: ", response.text)
+    logger.debug(f"LLM Response: {response.text}")
     return response.text
 
 
@@ -103,6 +102,15 @@ async def call_llm(prompt: str, timeout=30, connection=None):
     """
     if connection is None:
         connection = LLMConnection.get_instance()
+    
+    prompt_length = len(prompt)
+    logger.info(f"Calling LLM with prompt length: {prompt_length} chars")
+    if prompt_length > 200:
+        truncated = prompt[:100] + "..." + prompt[-100:]
+        logger.debug(f"Truncated prompt: {truncated}")
+    else:
+        logger.debug(f"Prompt: {prompt}")
+        
     response = await connection.generate(prompt, timeout)
     return response.text
 
@@ -120,6 +128,7 @@ async def call_llm_with_connection(connection, prompt, timeout=30):
     Returns:
         The text response from the LLM
     """
+    logger.info("Calling LLM with explicit connection")
     response = await connection.generate(prompt, timeout)
     return response.text
 

@@ -1,9 +1,110 @@
 import json
-from typing import Any, Dict, TypeVar, Type, Union
+from typing import Any, Dict, TypeVar, Type, Union, Optional
 from pydantic import BaseModel, ValidationError
 import re
 import logging
+import sys
+import os
 
+# Logging Configuration
+class EmojiLogFormatter(logging.Formatter):
+    """Custom formatter that adds emojis based on log level."""
+    
+    EMOJI_LEVELS = {
+        logging.DEBUG: "🔍",
+        logging.INFO: "ℹ️",
+        logging.WARNING: "⚠️",
+        logging.ERROR: "⛔",
+        logging.CRITICAL: "🔥"
+    }
+    
+    def format(self, record):
+        # Add emoji prefix based on log level
+        emoji = self.EMOJI_LEVELS.get(record.levelno, "")
+        
+        # Format the message with the standard formatter
+        formatted_message = super().format(record)
+        
+        # If we have an emoji, add it to the beginning
+        if emoji:
+            # Handle multiline messages correctly
+            lines = formatted_message.splitlines()
+            if lines:
+                lines[0] = f"{emoji} {lines[0]}"
+                return "\n".join(lines)
+        
+        return formatted_message
+
+def configure_logging(log_level=logging.INFO, log_file: Optional[str] = None, use_emojis: bool = True):
+    """
+    Configure the global logging system with emoji-enhanced logs.
+    
+    Args:
+        log_level: The minimum logging level to display
+        log_file: Optional path to a log file
+        use_emojis: Whether to include emojis in log messages
+        
+    Returns:
+        The configured root logger
+    """
+    # Create appropriate formatter
+    if use_emojis:
+        formatter = EmojiLogFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    else:
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    
+    # Remove existing handlers to avoid duplicates
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    # Add console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+    
+    # Add file handler if specified
+    if log_file:
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(formatter)
+        root_logger.addHandler(file_handler)
+    
+    # Configure third-party loggers
+    logging.getLogger("google.generativeai").setLevel(logging.WARNING)
+    
+    # Get a logger for this module
+    logger = get_logger("utils")
+    
+    # Log successful initialization
+    if use_emojis:
+        logger.info("Logging initialized with emoji support")
+    else:
+        logger.info("Logging initialized")
+        
+    return root_logger
+
+def get_logger(name: str) -> logging.Logger:
+    """
+    Get a logger instance for a specific module.
+    
+    Args:
+        name: The name of the module (typically __name__)
+        
+    Returns:
+        A configured logger instance
+    """
+    return logging.getLogger(name)
+
+# Initialize default logging - this will be called when utils.py is imported
+configure_logging()
+
+# Module-level logger for utils.py
+logger = get_logger(__name__)
 
 def to_json(user_input: str, data: Any, **kwargs) -> dict:
     """
@@ -185,15 +286,21 @@ def extract_structured_json(llm_output: Union[str, Dict, Any], model_class: Type
         ValueError: If validation fails
     """
     try:
+        logger.info(f"Extracting structured JSON for model: {model_class.__name__}")
+        
         # If input is already a model instance of the correct type, return it
         if isinstance(llm_output, model_class):
+            logger.debug("Input is already an instance of the target model")
             return llm_output
         
         # First extract the JSON
+        logger.debug(f"Extracting JSON from LLM output type: {type(llm_output).__name__}")
         json_data = extract_json(llm_output)
+        logger.debug(f"Extracted raw JSON data: {json_data}")
         
         # Pre-process data for common model structures
         if "function_call_params" in json_data and isinstance(json_data["function_call_params"], list):
+            logger.debug("Converting list parameters to dictionary with alphabetical keys")
             # Convert list params to dictionary with keys a, b, etc.
             params = {}
             for i, value in enumerate(json_data["function_call_params"]):
@@ -207,6 +314,7 @@ def extract_structured_json(llm_output: Union[str, Dict, Any], model_class: Type
         
         # Add standardized parameter name mapping
         if "function_call_params" in json_data and isinstance(json_data["function_call_params"], dict):
+            logger.debug("Applying parameter name standardization")
             # Map common parameter names to standardized names
             param_mapping = {
                 "param1": "a", "parameter1": "a", "p1": "a", "x": "a", "first": "a", "1": "a", "integer1": "a", "num1": "a", "number1": "a",
@@ -219,6 +327,8 @@ def extract_structured_json(llm_output: Union[str, Dict, Any], model_class: Type
             for key, value in json_data["function_call_params"].items():
                 # If the key has a mapping, use the mapped key
                 mapped_key = param_mapping.get(key, key)
+                if key != mapped_key:
+                    logger.debug(f"Mapped parameter name: {key} → {mapped_key}")
                 # Convert string numbers to integers if possible
                 if isinstance(value, str) and value.isdigit():
                     new_params[mapped_key] = int(value)
@@ -229,11 +339,14 @@ def extract_structured_json(llm_output: Union[str, Dict, Any], model_class: Type
         
         # Generic handling for task-based function calls in any model
         if "task" in json_data:
+            logger.debug(f"Processing task: {json_data['task']}")
             if "function_call" not in json_data:
                 json_data["function_call"] = json_data["task"].split("(")[0] if "(" in json_data["task"] else json_data["task"]
+                logger.debug(f"Generated function_call from task: {json_data['function_call']}")
             
             # If we have input parameters but no function_call_params
             if "function_call_params" not in json_data and "input" in json_data:
+                logger.debug("Converting input field to function_call_params")
                 params = {}
                 if isinstance(json_data["input"], list):
                     for i, value in enumerate(json_data["input"]):
@@ -248,6 +361,7 @@ def extract_structured_json(llm_output: Union[str, Dict, Any], model_class: Type
         
         # Extract parameters from function_call string if function_call_params is missing
         if "function_call" in json_data and "function_call_params" not in json_data:
+            logger.debug(f"Extracting parameters from function_call string: {json_data['function_call']}")
             func_call = json_data["function_call"]
             if "(" in func_call and ")" in func_call:
                 params_str = func_call.split("(", 1)[1].rsplit(")", 1)[0]
@@ -266,23 +380,27 @@ def extract_structured_json(llm_output: Union[str, Dict, Any], model_class: Type
                                 value = value[1:-1]
                             params[key] = value
                 json_data["function_call_params"] = params
+                logger.debug(f"Extracted parameters: {params}")
         
         # Handle the case where we just have text but need a model
         if len(json_data) == 1 and "text" in json_data:
+            logger.debug("Processing text-only response")
             # Try to determine if the text field matches any field in the model
             if model_class.__fields__:
                 first_field = next(iter(model_class.__fields__.keys()))
                 # If "text" is not a field in the model, map it to the first field
                 if "text" not in model_class.__fields__:
+                    logger.debug(f"Mapping 'text' to model field '{first_field}'")
                     return model_class(**{first_field: json_data["text"]})
         
         # Try to validate with Pydantic
         try:
+            logger.debug(f"Validating data against model: {model_class.__name__}")
             return model_class.parse_obj(json_data)
         except ValidationError as e:
             # In case of validation error, print more details for debugging
-            print(f"Validation error: {e}")
-            print(f"JSON data: {json_data}")
+            logger.warning(f"Validation error: {e}")
+            logger.debug(f"JSON data causing validation error: {json_data}")
             # Check which fields are missing and set them to default values if possible
             missing_fields = []
             invalid_fields = []
@@ -302,6 +420,7 @@ def extract_structured_json(llm_output: Union[str, Dict, Any], model_class: Type
                             json_data[field_name] = {}
                         elif field_info.type_ == list:
                             json_data[field_name] = []
+                        logger.debug(f"Setting default value for missing field '{field_name}'")
                 # Handle type errors
                 elif error["type"] in ["dict_type", "list_type", "string_type"]:
                     field_path = error["loc"]
@@ -310,6 +429,7 @@ def extract_structured_json(llm_output: Union[str, Dict, Any], model_class: Type
                         invalid_fields.append(field_name)
                         # Fix common type issues
                         if field_name == "function_call_params" and "function_call_params" in json_data:
+                            logger.debug(f"Attempting to fix type issue with '{field_name}'")
                             # If function_call_params is not a dict, convert it
                             if not isinstance(json_data["function_call_params"], dict):
                                 value = json_data["function_call_params"]
@@ -332,13 +452,18 @@ def extract_structured_json(llm_output: Union[str, Dict, Any], model_class: Type
             
             # Try again with the fixed data
             if missing_fields or invalid_fields:
-                print(f"Attempting to fix fields: Missing: {missing_fields}, Invalid: {invalid_fields}")
+                logger.info(f"Attempting to fix fields: Missing: {missing_fields}, Invalid: {invalid_fields}")
                 return model_class.parse_obj(json_data)
             else:
+                logger.error("Validation failed and couldn't be fixed automatically")
                 raise
             
     except ValidationError as e:
-        raise ValueError(f"JSON validation failed: {str(e)}")
+        error_msg = f"JSON validation failed: {str(e)}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
     except Exception as e:
-        raise ValueError(f"Error extracting or validating JSON: {str(e)}")
+        error_msg = f"Error extracting or validating JSON: {str(e)}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 

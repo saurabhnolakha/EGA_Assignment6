@@ -2,8 +2,10 @@ import json
 import os
 from typing import List, Dict, Any
 from llm import call_llm, LLMConnection, get_connection
-from utils import combine_json, extract_json
+from utils import combine_json, extract_json, get_logger
 
+# Get a logger for this module
+logger = get_logger(__name__)
 
 class Memory:
     def __init__(self, file_path: str = "memory_data.json", connection=None):
@@ -18,6 +20,8 @@ class Memory:
         # Store connection or use None (will get singleton when needed)
         self.connection = connection
         
+        logger.info(f"Initializing Memory with file path: {file_path}")
+        
         # Load existing memory from file or initialize empty list
         if os.path.exists(file_path):
             try:
@@ -26,6 +30,7 @@ class Memory:
             except json.JSONDecodeError:
                 self.memory = []
         else:
+            logger.info(f"Memory file {file_path} not found, initializing empty memory")
             self.memory = []
 
     async def add(self, fact: Dict[str, Any]):
@@ -46,10 +51,12 @@ class Memory:
             # Save to disk after each update
             self._save_to_disk()
         else:
-            print(f"Warning: Skipping memory entry with invalid format: {fact}")
+            logger.warning(f"Skipping memory entry with invalid format: {fact}")
 
     def _save_to_disk(self):
         """Save memory to JSON file on disk"""
+        logger.debug(f"Saving memory to disk: {self.file_path}")
+        
         # Custom encoder to handle non-serializable types
         class CustomEncoder(json.JSONEncoder):
             def default(self, obj):
@@ -62,8 +69,12 @@ class Memory:
                 # Default fallback
                 return str(obj)
                 
-        with open(self.file_path, 'w') as file:
-            json.dump(self.memory, file, indent=2, cls=CustomEncoder)
+        try:
+            with open(self.file_path, 'w') as file:
+                json.dump(self.memory, file, indent=2, cls=CustomEncoder)
+            logger.info(f"Successfully saved {len(self.memory)} memory entries to {self.file_path}")
+        except Exception as e:
+            logger.error(f"Error saving memory to disk: {e}")
 
     async def recall(self, query: str, connection=None):
         """
@@ -178,8 +189,9 @@ Note:
 3. Do not add any other text or comments for any sections mentioned above. Return strictly ONLY the JSON object.
 
 """
+        logger.debug("Sending memory recall prompt to LLM")
         response = await call_llm(prompt, connection=llm_connection)
-        # print("Memory Module Response: ", response)
+        logger.info("Memory Module Response: ", response)
         return response
 
     

@@ -1,5 +1,8 @@
 from llm import call_llm, LLMConnection, get_connection
+from utils import get_logger
 
+# Get a logger for this module
+logger = get_logger(__name__)
 
 async def perception(user_input: str, connection=None):
     prompt = f"""
@@ -70,15 +73,18 @@ Note:
 }}
 """
     
-    print("Perception Module Initialized...")
-    print("Perception Prompt: ", prompt)
+    logger.info("Perception Module Initialized...")
+    logger.debug(f"Perception Prompt: {prompt}")
     
     # Use the provided connection or get the singleton
     if connection is None:
+        logger.debug("No connection provided, getting singleton")
         connection = get_connection()
         
+    logger.info(f"Processing user input: '{user_input}'")
     perception_result = await call_llm(prompt, connection=connection)
-    print("Perception Result: ", perception_result)
+    logger.info("Perception processing completed")
+    logger.debug(f"Perception Result: {perception_result}")
     return perception_result
 
                    
